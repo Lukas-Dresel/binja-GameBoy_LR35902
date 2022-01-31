@@ -8,7 +8,7 @@ This LR35902 architecture plugin was written after a grueling CTF challenge of a
 </p>
 
 <p>
-This plugin uses the <a href='https://github.com/Lukas-Dresel/lr35902dis'>lr35902</a> library for disassembly, and was rather unceremoniously ripped straight from Vector 35's <a href='https://github.com/Vector35/Z80'>Z80</a> plugin and modified to support the opcodes of the LR35902 CPU.
+This plugin uses the <a href='https://github.com/Lukas-Dresel/lr35902dis'>lr35902dis</a> library for disassembly, and was rather unceremoniously ripped straight from Vector 35's <a href='https://github.com/Vector35/Z80'>Z80</a> plugin and modified to support the opcodes of the LR35902 CPU.
 It also contains a GameBoyRomView straight up stolen from <a href='https://github.com/ZetaTwo/binja-gameboy'>ZetaTwo's Improved GameBoyRom plugin</a>.
 </p>
 
