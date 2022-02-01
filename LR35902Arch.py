@@ -357,12 +357,11 @@ class LR35902(Architecture):
                 result.extend([InstructionTextToken(*ts) for ts in toks])
 
             elif oper_type == OPER_TYPE.ADDR_DEREF_FF00:
-                txt = '0x{:02x}'.format(oper_val & 0xff)
+                val = 0xFF00 + (oper_val & 0xff)
+                txt = '0x{:04x}'.format(val)
                 toks = [
                     (InstructionTextTokenType.BeginMemoryOperandToken, '('),
-                    (InstructionTextTokenType.PossibleAddressToken, '0xFF00', 0xFF00),
-                    (InstructionTextTokenType.TextToken, '+'),
-                    (InstructionTextTokenType.IntegerToken, txt),
+                    (InstructionTextTokenType.PossibleAddressToken, txt, val),
                     (InstructionTextTokenType.EndMemoryOperandToken, ')'),
                 ]
                 result.extend([InstructionTextToken(*ts) for ts in toks])

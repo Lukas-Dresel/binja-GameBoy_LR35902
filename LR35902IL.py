@@ -314,6 +314,31 @@ def gen_instr_il(addr, decoded, il):
         operand = operand_to_il(operb_type, operb_val, il, 1)
         il.append(il.and_expr(1, operand, mask, flags='*'))
 
+    elif decoded.op == OP.SET:
+        assert oper_type == OPER_TYPE.IMM
+        assert oper_val >= 0 and oper_val <= 7
+
+        operand = operand_to_il(operb_type, operb_val, il, 1)
+
+        mask = il.const(1, (1<<oper_val)) # mask to clear out the target bit
+        new = il.or_expr(1, operand, mask)
+
+        append_store_result(operb_type, operb_val, 1, new, il)
+
+    elif decoded.op == OP.RES:
+        assert oper_type == OPER_TYPE.IMM
+        assert oper_val >= 0 and oper_val <= 7
+
+        operand = operand_to_il(operb_type, operb_val, il, 1)
+
+        mask = il.const(1, 0xff - (1<<oper_val)) # mask to clear out the target bit
+        new = il.and_expr(1, operand, mask)
+
+        append_store_result(operb_type, operb_val, 1, new, il)
+
+    elif decoded.op == OP.CPL:
+        il.append(il.set_reg(1, 'A', il.not_expr(1, il.reg(1, 'A'))))
+
     elif decoded.op == OP.CALL:
         condition, target = (oper_val, operb_val) if oper_type == OPER_TYPE.COND else (CC.ALWAYS, oper_val)
         append_conditional_instr(condition, il.call(il.const_pointer(2, target)), il)
@@ -444,6 +469,14 @@ def gen_instr_il(addr, decoded, il):
 
         src = operand_to_il(oper_type, oper_val, il)
         rot = il.rotate_left_carry(1, src, il.const(1, 1), il.flag('c'), flags='c')
+        append_store_result(oper_type, oper_val, 1, rot, il)
+
+    elif decoded.op in [OP.SLA]:
+        # shift left: b0=c, c=b8
+        # LR35902 'SLA' -> llil 'shift_left'
+
+        src = operand_to_il(oper_type, oper_val, il)
+        rot = il.shift_left(1, src, il.const(1, 1), flags='c')
         append_store_result(oper_type, oper_val, 1, rot, il)
 
     elif decoded.op in [OP.RLC, OP.RLCA]:
