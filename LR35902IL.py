@@ -192,19 +192,30 @@ def expressionify(size, foo, il, temps_are_conds=False):
 #        il.append(il.set_flag('h', il.const(0, 0)))
 
 def gen_flag_il(op, size, write_type, flag, operands, il):
+    if op in {LowLevelILOperation.LLIL_ASR, LowLevelILOperation.LLIL_LSR}:
+        if flag == 'c':
+            return il.test_bit(1, expressionify(size, operands[0], il), il.const(1, 1))
+        else:
+            print(f"{op=}, {size=}, {write_type=}, {flag=}, {operands=}, {il=}")
+            return None
     if flag == 'c':
         if op == LowLevelILOperation.LLIL_SBB:
+            print(f"{op=}, {size=}, {write_type=}, {flag=}, {operands=}")
+            lhs = expressionify(size, operands[1], il)
+            rhs = expressionify(1, operands[2], il, True)
+            cmp = expressionify(size, operands[0], il)
             return il.compare_signed_greater_than(size,
                 il.add(size,
-                    expressionify(size, operands[1], il),
-                    expressionify(1, operands[2], il, True)
+                    lhs,
+                    rhs
                 ),
-                expressionify(size, operands[0], il)
+                cmp
             )
 
         if op == LowLevelILOperation.LLIL_OR:
             return il.const(1, 0)
         if op == LowLevelILOperation.LLIL_ASR:
+            assert False
             return il.test_bit(1, expressionify(size, operands[0], il), il.const(1, 1))
         if op == LowLevelILOperation.LLIL_POP:
             return il.set_flag('c', il.test_bit(1, il.reg(1, 'F'), il.const(1, 1)))
@@ -226,9 +237,16 @@ def gen_flag_il(op, size, write_type, flag, operands, il):
             return il.const(1, 0)
 
     if flag == 'z':
-        if op == LowLevelILOperation.LLIL_XOR:
+        bin_mapping = {
+            LowLevelILOperation.LLIL_XOR: il.xor_expr,
+            LowLevelILOperation.LLIL_OR: il.or_expr,
+            LowLevelILOperation.LLIL_AND: il.and_expr,
+            LowLevelILOperation.LLIL_ADD: il.add,
+            LowLevelILOperation.LLIL_SUB: il.sub,
+        }
+        if op in bin_mapping:
             return il.compare_equal(size,
-                il.xor_expr(size,
+                bin_mapping[op](size,
                     expressionify(size, operands[0], il),
                     expressionify(size, operands[1], il),
                 ),
@@ -236,6 +254,32 @@ def gen_flag_il(op, size, write_type, flag, operands, il):
             )
 
     return None
+
+def append_store_result(loc_type, loc_val, size, expr, il):
+    print(loc_type, loc_val, size, expr)
+    deref_src_addr_map = {
+        OPER_TYPE.REG_DEREF: lambda: il.reg(2, loc_val.name),
+        OPER_TYPE.REG_DEREF_DEC: lambda: il.reg(2, loc_val.name),
+        OPER_TYPE.REG_DEREF_INC: lambda: il.reg(2, loc_val.name),
+        OPER_TYPE.REG_DEREF_FF00: lambda: il.add(2, il.reg(2, loc_val.name), il.const_pointer(2, 0xff00)),
+        OPER_TYPE.ADDR_DEREF: lambda: il.const_pointer(2, loc_val),
+        OPER_TYPE.ADDR_DEREF_FF00: lambda: il.const_pointer(2, 0xff00 + loc_val),
+    }
+    update_map = {
+        OPER_TYPE.REG_DEREF_INC: lambda: il.set_reg(2, 'HL', il.add(2, il.reg(2, 'HL'), il.const(2, 1))),
+        OPER_TYPE.REG_DEREF_DEC: lambda: il.set_reg(2, 'HL', il.sub(2, il.reg(2, 'HL'), il.const(2, 1))),
+    }
+    if loc_type in deref_src_addr_map:
+        target_addr = deref_src_addr_map[loc_type]()
+        il.append(il.store(size, target_addr, expr))
+        if loc_type in update_map:
+            il.append(update_map[loc_type]())
+
+    elif loc_type == OPER_TYPE.REG:
+        il.append(il.set_reg(size, loc_val.name, expr))
+
+    else:
+        assert False, f"WHHAAAAAt are you trying to store into?? {loc_type=}, {loc_val=}, {size=}, {expr=}, {il=}"
 
 #------------------------------------------------------------------------------
 # INSTRUCTION LIFTING
@@ -274,11 +318,15 @@ def gen_instr_il(addr, decoded, il):
         il.append(il.and_expr(1, operand, mask, flags='*'))
 
     elif decoded.op == OP.CALL:
-        if oper_type == OPER_TYPE.ADDR:
-            il.append(il.call(il.const_pointer(2, oper_val)))
-        else:
-            # TODO: handle the conditional
-            il.append(il.unimplemented())
+        condition, target = (oper_val, operb_val) if oper_type == OPER_TYPE.COND else (CC.ALWAYS, oper_val)
+        append_conditional_instr(condition, il.call(il.const_pointer(2, target)), il)
+
+    elif decoded.op == OP.RST:
+        assert oper_type == OPER_TYPE.IMM
+        il.append(il.const_pointer(2, oper_val))
+
+    elif decoded.op == OP.SCF:
+        il.append(il.set_flag('c', il.const(0, 1)))
 
     elif decoded.op == OP.CCF:
         il.append(il.set_flag('c', il.not_expr(0, il.flag('c'))))
@@ -308,53 +356,43 @@ def gen_instr_il(addr, decoded, il):
         else:
             il.append(goto_or_jump(oper_type, oper_val, il))
 
-    elif decoded.op == OP.LD:
-        assert len(decoded.operands) == 2
+    # elif decoded.op == OP.LD:
+    #     assert len(decoded.operands) == 2
 
-        if oper_type == OPER_TYPE.REG:
-            size = REG_TO_SIZE[oper_val]
-            # for two-byte nonzero loads, guess that it's an address
-            if size == 2 and operb_type == OPER_TYPE.IMM and operb_val != 0:
-                operb_type = OPER_TYPE.ADDR
-            rhs = operand_to_il(operb_type, operb_val, il, size)
-            set_reg = il.set_reg(size, reg2str(oper_val), rhs)
-            il.append(set_reg)
-        else:
-            assert operb_type in [OPER_TYPE.REG, OPER_TYPE.IMM]
+    #     if oper_type == OPER_TYPE.REG:
+    #         size = REG_TO_SIZE[oper_val]
+    #         # for two-byte nonzero loads, guess that it's an address
+    #         if size == 2 and operb_type == OPER_TYPE.IMM and operb_val != 0:
+    #             operb_type = OPER_TYPE.ADDR
+    #         rhs = operand_to_il(operb_type, operb_val, il, size)
+    #         set_reg = il.set_reg(size, reg2str(oper_val), rhs)
+    #         il.append(set_reg)
+    #     else:
+    #         assert operb_type in [OPER_TYPE.REG, OPER_TYPE.IMM]
 
-            if operb_type == OPER_TYPE.REG:
-                # 1 or 2 byte stores are possible here:
-                # ld (0xcdab),bc
-                # ld (ix-0x55),a
-                size = REG_TO_SIZE[operb_val]
-            elif operb_type == OPER_TYPE.IMM:
-                # only 1 byte stores are possible
-                # eg: ld (ix-0x55),0xcd
-                size = 1
+    #         if operb_type == OPER_TYPE.REG:
+    #             # 1 or 2 byte stores are possible here:
+    #             # ld (0xcdab),bc
+    #             # ld (ix-0x55),a
+    #             size = REG_TO_SIZE[operb_val]
+    #         elif operb_type == OPER_TYPE.IMM:
+    #             # only 1 byte stores are possible
+    #             # eg: ld (ix-0x55),0xcd
+    #             size = 1
 
-            src = operand_to_il(operb_type, operb_val, il, size)
-            dst = operand_to_il(oper_type, oper_val, il, size, peel_load=True)
-            il.append(il.store(size, dst, src))
+    #         src = operand_to_il(operb_type, operb_val, il, size)
+    #         dst = operand_to_il(oper_type, oper_val, il, size, peel_load=True)
+    #         il.append(il.store(size, dst, src))
 
-    elif decoded.op == OP.LDI or decoded.op == OP.LDD:
-        op = {
-            OP.LDI: il.add,
-            OP.LDD: il.sub,
-        }[decoded.op]
-        if oper_type in {OPER_TYPE.REG_DEREF_INC, OPER_TYPE.REG_DEREF_DEC}:
-            assert oper_val == REG.HL and operb_type == OPER_TYPE.REG and operb_val == REG.A
-            il.append(il.store(1, il.reg(2, 'HL'), il.reg(1, 'A')))
-            il.append(il.set_reg(2, 'HL', op(2, il.reg(2, 'HL'), il.const(2, 1))))
-        else:
-            assert oper_type == OPER_TYPE.REG and \
-                oper_val == REG.A and \
-                operb_type in {OPER_TYPE.REG_DEREF_INC, OPER_TYPE.REG_DEREF_DEC} and \
-                operb_val == REG.HL
-            il.append(il.set_reg(1, 'A', il.load(1, il.reg(2, 'HL'))))
-            il.append(il.set_reg(2, 'HL', op(2, il.reg(2, 'HL'), il.const(2, 1))))
+    elif decoded.op in [OP.LD, OP.LDI, OP.LDD]:
+        expr = operand_to_il(operb_type, operb_val, il, size_hint=1)
+        append_store_result(oper_type, oper_val, 1, expr, il)
 
-    elif decoded.op == OP.NOP:
+    elif decoded.op in {OP.NOP, OP.DI, OP.EI, OP.HALT}:
         il.append(il.nop())
+
+    elif decoded.op in {OP.STOP}:
+        il.append(il.no_ret())
 
     elif decoded.op == OP.OR:
         tmp = il.reg(1, 'A')
@@ -405,19 +443,11 @@ def gen_instr_il(addr, decoded, il):
         # rotate THROUGH carry: b0=c, c=b8
         # LR35902 'RL' -> llil 'RLC'
         if decoded.op == OP.RLA:
-            src = il.reg(1, 'A')
-        else:
-            src = operand_to_il(oper_type, oper_val, il)
+            oper_type, oper_val = OPER_TYPE.REG, REG.A
 
+        src = operand_to_il(oper_type, oper_val, il)
         rot = il.rotate_left_carry(1, src, il.const(1, 1), il.flag('c'), flags='c')
-
-        if decoded.op == OP.RLA:
-            il.append(il.set_reg(1, 'A', rot))
-        elif oper_type == OPER_TYPE.REG:
-            il.append(il.set_reg(1, reg2str(oper_val), rot))
-        else:
-            tmp = operand_to_il(oper_type, oper_val, il, 1, peel_load=True)
-            il.append(il.store(1, tmp2, tmp))
+        append_store_result(oper_type, oper_val, 1, rot, il)
 
     elif decoded.op in [OP.RLC, OP.RLCA]:
         # rotate and COPY to carry: b0=c, c=b8
@@ -429,15 +459,17 @@ def gen_instr_il(addr, decoded, il):
 
         rot = il.rotate_left(1, src, il.const(1, 1), flags='c')
 
-        if decoded.op == OP.RLCA:
-            il.append(il.set_reg(1, 'A', rot))
-        elif oper_type == OPER_TYPE.REG:
-            il.append(il.set_reg(1, reg2str(oper_val), rot))
-        else:
-            tmp = operand_to_il(oper_type, oper_val, il, 1, peel_load=True)
-            il.append(il.store(1, tmp2, tmp))
+        append_store_result(oper_type or OPER_TYPE.REG, oper_val or REG.A, 1, rot, il)
 
-    elif decoded.op == OP.RET:
+    elif decoded.op == OP.SWAP:
+        src = operand_to_il(oper_type, oper_val, il, size_hint=1)
+
+        new_low = il.and_expr(1, il.logical_shift_right(1, src, il.const(1, 4)), il.const(1, 0xf))
+        new_high = il.and_expr(1, il.shift_left(1, src, il.const(1, 4)), il.const(1, 0xf0))
+        res = il.or_expr(1, new_low, new_high, flags='z')
+        append_store_result(oper_type, oper_val, 1, res, il)
+
+    elif decoded.op in {OP.RET, OP.RETI}:
         tmp = il.ret(il.pop(2))
         if decoded.operands:
             append_conditional_instr(decoded.operands[0][1], tmp, il)
@@ -465,6 +497,21 @@ def gen_instr_il(addr, decoded, il):
     elif decoded.op == OP.SRA:
         tmp = operand_to_il(oper_type, oper_val, il, 1)
         tmp = il.arith_shift_right(1, tmp, il.const(1, 1), flags='c')
+
+        if oper_type == OPER_TYPE.REG:
+            tmp = il.set_reg(1, reg2str(oper_val), tmp)
+        else:
+            tmp = il.store(1,
+                operand_to_il(oper_type, oper_val, il, 1, peel_load=True),
+                tmp
+            )
+
+        il.append(tmp)
+
+    elif decoded.op == OP.SRL:
+        print(decoded)
+        tmp = operand_to_il(oper_type, oper_val, il, 1)
+        tmp = il.logical_shift_right(1, tmp, il.const(1, 1), flags='c')
 
         if oper_type == OPER_TYPE.REG:
             tmp = il.set_reg(1, reg2str(oper_val), tmp)
@@ -511,7 +558,7 @@ def gen_instr_il(addr, decoded, il):
         il.append(tmp)
 
     else:
-        print(f"unimplemented opcode lifter: {decoded2str(decoded)} @ {hex(addr)}")
+        # print(f"unimplemented opcode lifter: {decoded2str(decoded)} @ {hex(addr)}")
         il.append(il.unimplemented())
         #il.append(il.nop()) # these get optimized away during lifted il -> llil
 
