@@ -241,7 +241,7 @@ def gen_flag_il(op, size, write_type, flag, operands, il):
             LowLevelILOperation.LLIL_XOR: il.xor_expr,
             LowLevelILOperation.LLIL_OR: il.or_expr,
             LowLevelILOperation.LLIL_AND: il.and_expr,
-            LowLevelILOperation.LLIL_ADD: il.add,
+            # LowLevelILOperation.LLIL_ADD: il.add,
             LowLevelILOperation.LLIL_SUB: il.sub,
         }
         if op in bin_mapping:
