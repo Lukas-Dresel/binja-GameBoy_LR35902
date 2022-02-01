@@ -378,7 +378,8 @@ def gen_instr_il(addr, decoded, il):
         if oper_val == REG.AF:
             # lo byte F first
             il.append(il.push(2,
-                il.or_expr(2,
+                il.or_expr(
+                    2,
                     il.or_expr(1,
                         il.or_expr(1,
                             il.shift_left(1, il.flag('z'), il.const(1, 7)),
@@ -388,11 +389,11 @@ def gen_instr_il(addr, decoded, il):
                             il.shift_left(1, il.flag('h'), il.const(1, 5)),
                             il.shift_left(1, il.flag('c'), il.const(1, 4))
                         )
+                    ),
+                    il.shift_left(2,
+                        il.reg(1, 'A'),
+                        il.const(1, 8)
                     )
-                ),
-                il.shift_left(2,
-                    il.reg(1, 'A'),
-                    il.const(1, 8)
                 )
             ))
         else:

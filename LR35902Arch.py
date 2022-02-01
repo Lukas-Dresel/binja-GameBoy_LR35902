@@ -217,13 +217,14 @@ class LR35902(Architecture):
                 assert decoded.operands[1][0] == OPER_TYPE.ADDR
                 result.add_branch(BranchType.TrueBranch, decoded.operands[1][1])
                 result.add_branch(BranchType.FalseBranch, addr + decoded.len)
-            # jp (hl)
-            elif oper_type in [OPER_TYPE.REG_DEREF]:
+            # jp hl
+            elif oper_type in [OPER_TYPE.REG]:
                 result.add_branch(BranchType.IndirectBranch)
             # jp 0xDEAD
             elif oper_type == OPER_TYPE.ADDR:
                 result.add_branch(BranchType.UnconditionalBranch, oper_val)
             else:
+                print(f"Missed JP handling type: {decoded}")
                 raise Exception('handling JP')
 
         # jr can be conditional
@@ -272,8 +273,10 @@ class LR35902(Architecture):
 # STRING building, disassembly
 #------------------------------------------------------------------------------
 
-    def reg2str(self, r):
-        return reg2str(r)
+    def reg2str(self, reg):
+        reg_name = reg.name if isinstance(reg, REG) else reg
+        # enum AF_ should be returned as AF'
+        return reg_name if reg_name[-1] != '_' else reg_name[:-1]+"'"
 
 # from api/python/function.py:
 #
@@ -359,7 +362,7 @@ class LR35902(Architecture):
                     (InstructionTextTokenType.BeginMemoryOperandToken, '('),
                     (InstructionTextTokenType.PossibleAddressToken, '0xFF00', 0xFF00),
                     (InstructionTextTokenType.TextToken, '+'),
-                    (InstructionTextTokenType.IntegerToken, self.reg2str(oper_val)),
+                    (InstructionTextTokenType.IntegerToken, txt),
                     (InstructionTextTokenType.EndMemoryOperandToken, ')'),
                 ]
                 result.extend([InstructionTextToken(*ts) for ts in toks])
