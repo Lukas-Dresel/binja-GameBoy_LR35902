@@ -29,15 +29,6 @@ REG_TO_SIZE = {
     REG.DE:2,
     REG.HL:2,
 
-    REG.A_:1, REG.F_:1,
-    REG.B_:1, REG.C_:1,
-    REG.D_:1, REG.E_:1,
-    REG.H_:1, REG.L_:1,
-    REG.AF_:2,
-    REG.BC_:2,
-    REG.DE_:2,
-    REG.HL_:2,
-
     REG.SP:2,
     REG.PC:2
 }
