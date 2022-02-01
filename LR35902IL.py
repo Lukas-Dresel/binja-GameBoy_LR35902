@@ -113,7 +113,7 @@ def operand_to_il(oper_type, oper_val, il, size_hint=0, peel_load=False):
     if oper_type == OPER_TYPE.REG:
         return il.reg(REG_TO_SIZE[oper_val], reg2str(oper_val))
 
-    elif oper_type == OPER_TYPE.REG_DEREF:
+    elif oper_type in [OPER_TYPE.REG_DEREF, OPER_TYPE.REG_DEREF_INC, OPER_TYPE.REG_DEREF_DEC] :
         tmp = operand_to_il(OPER_TYPE.REG, oper_val, il, size_hint)
         if peel_load:
             return tmp
@@ -196,11 +196,9 @@ def gen_flag_il(op, size, write_type, flag, operands, il):
         if flag == 'c':
             return il.test_bit(1, expressionify(size, operands[0], il), il.const(1, 1))
         else:
-            print(f"{op=}, {size=}, {write_type=}, {flag=}, {operands=}, {il=}")
             return None
     if flag == 'c':
         if op == LowLevelILOperation.LLIL_SBB:
-            print(f"{op=}, {size=}, {write_type=}, {flag=}, {operands=}")
             lhs = expressionify(size, operands[1], il)
             rhs = expressionify(1, operands[2], il, True)
             cmp = expressionify(size, operands[0], il)
@@ -256,7 +254,6 @@ def gen_flag_il(op, size, write_type, flag, operands, il):
     return None
 
 def append_store_result(loc_type, loc_val, size, expr, il):
-    print(loc_type, loc_val, size, expr)
     deref_src_addr_map = {
         OPER_TYPE.REG_DEREF: lambda: il.reg(2, loc_val.name),
         OPER_TYPE.REG_DEREF_DEC: lambda: il.reg(2, loc_val.name),
@@ -509,7 +506,6 @@ def gen_instr_il(addr, decoded, il):
         il.append(tmp)
 
     elif decoded.op == OP.SRL:
-        print(decoded)
         tmp = operand_to_il(oper_type, oper_val, il, 1)
         tmp = il.logical_shift_right(1, tmp, il.const(1, 1), flags='c')
 
@@ -558,7 +554,7 @@ def gen_instr_il(addr, decoded, il):
         il.append(tmp)
 
     else:
-        # print(f"unimplemented opcode lifter: {decoded2str(decoded)} @ {hex(addr)}")
+        print(f"unimplemented opcode lifter: {decoded2str(decoded)} @ {hex(addr)}")
         il.append(il.unimplemented())
         #il.append(il.nop()) # these get optimized away during lifted il -> llil
 
