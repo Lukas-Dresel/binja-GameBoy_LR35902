@@ -142,9 +142,10 @@ class GameBoyRomView(BinaryView):
                                   SegmentFlag.SegmentWritable | SegmentFlag.SegmentExecutable)
 
         # Add IO registers
-        for address, name in LR35902.IO_REGISTERS.items():
+        for address, (name, long_name, description) in LR35902.IO_REGISTERS.items():
             self.define_auto_symbol_and_var_or_function(
                 Symbol(SymbolType.DataSymbol, address, name), Type.int(1))
+            self.set_comment_at(address, long_name)
 
         # Define entrypoint
         self.define_auto_symbol(
